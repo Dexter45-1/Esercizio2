@@ -3,6 +3,8 @@ name: Build Insight Amygdala APK
 on:
   push:
     branches: [ "amygdala-apk-build" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
