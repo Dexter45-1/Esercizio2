@@ -1,0 +1,65 @@
+name: Temporary Insight APK Builder
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  build:
+    if: github.event.issue.title == '[build-insight-amygdala-apk]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: amygdala-apk-build
+
+      - name: Build APK with preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          PLATFORM=$(find "$SDK/platforms" -maxdepth 1 -type d -name 'android-*' | sort -V | tail -1)
+          BT=$(find "$SDK/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
+
+          rm -rf build
+          mkdir -p build/classes build/dex
+
+          javac -source 8 -target 8 \
+            -classpath "$PLATFORM/android.jar" \
+            -d build/classes \
+            src/com/oai/insightar/MainActivity.java
+
+          "$BT/d8" --min-api 23 --output build/dex $(find build/classes -name '*.class')
+
+          "$BT/aapt" package -f \
+            -M AndroidManifest.xml \
+            -I "$PLATFORM/android.jar" \
+            -A assets \
+            -F build/Insight-Amygdala-unsigned.apk
+
+          (cd build/dex && zip -q -j ../Insight-Amygdala-unsigned.apk classes.dex)
+
+          keytool -genkeypair -v \
+            -keystore build/insight-debug.jks \
+            -storepass insight123 \
+            -keypass insight123 \
+            -alias insight \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Insight AR, OU=Fan Build, O=Insight AR, L=Rome, C=IT"
+
+          "$BT/zipalign" -f 4 build/Insight-Amygdala-unsigned.apk build/Insight-Amygdala-aligned.apk
+          "$BT/apksigner" sign \
+            --ks build/insight-debug.jks \
+            --ks-pass pass:insight123 \
+            --key-pass pass:insight123 \
+            --out build/Insight-Amygdala-AR.apk \
+            build/Insight-Amygdala-aligned.apk
+
+          "$BT/apksigner" verify --verbose build/Insight-Amygdala-AR.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Insight-Amygdala-AR
+          path: build/Insight-Amygdala-AR.apk
+          if-no-files-found: error
